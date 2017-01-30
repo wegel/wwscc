@@ -17,26 +17,22 @@ func Passthrough(channel *Channel) {
 				}
 			}(c.remoteType)
 			for {
-				c.rmu.Lock()
-				msgType, message, err := c.conn.ReadMessage()
-				c.rmu.Unlock()
+				msgType, message, err := c.ReadMessage()
 				if err != nil {
 					if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 						log.Printf("%s read error, msg type %v, on channel %v: %v\n", c.remoteType, msgType, channel.id, err)
 					}
-					if c.otherSide != nil && c.otherSide.conn != nil {
-						c.otherSide.conn.Close()
+					if c.otherSide != nil && c.otherSide.ws != nil {
+						c.otherSide.ws.Close()
 					}
-					if c.conn != nil {
-						c.conn.Close()
+					if c.ws != nil {
+						c.ws.Close()
 					}
 
 					break
 				} else {
-					if c.otherSide != nil && c.otherSide.conn != nil {
-						c.otherSide.wmu.Lock()
-						c.otherSide.conn.WriteMessage(msgType, message)
-						c.otherSide.wmu.Unlock()
+					if c.otherSide != nil && c.otherSide.ws != nil {
+						c.otherSide.WriteMessage(msgType, message)
 					}
 				}
 			}

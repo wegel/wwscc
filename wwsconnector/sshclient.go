@@ -9,9 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-
-	"./wsconn"
-
 	"golang.org/x/crypto/ssh"
 
 	"bufio"
@@ -46,7 +43,7 @@ func sshShell(channel *Channel) {
 	username := channel.tunnel.params["username"][0]
 	cols, _ := strconv.Atoi(channel.tunnel.params["cols"][0])
 	rows, _ := strconv.Atoi(channel.tunnel.params["rows"][0])
-	wsWrapper, err := wsconn.NewConn(channel.tunnel.conn, &channel.tunnel.wmu, &channel.tunnel.rmu)
+	wsWrapper, err := NewConn(channel.tunnel)
 
 	config := &ssh.ClientConfig{
 		Config: ssh.Config{Ciphers: GetSupportedCiphers()},
@@ -67,7 +64,7 @@ func sshShell(channel *Channel) {
 		},
 	}
 
-	proxyConn, _ := wsconn.NewConn(channel.proxy.conn, &channel.proxy.wmu, &channel.proxy.rmu)
+	proxyConn, _ := NewConn(channel.proxy)
 	c, chans, reqs, err := ssh.NewClientConn(proxyConn, "localhost", config)
 	if err != nil {
 		log.Println("Error NewClientConn:", err)
@@ -110,6 +107,6 @@ func sshShell(channel *Channel) {
 		log.Println("Unable to execute command:", err)
 	}
 
-	channel.tunnel.conn.Close()
-	channel.proxy.conn.Close()
+	channel.tunnel.ws.Close()
+	channel.proxy.ws.Close()
 }
