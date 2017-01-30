@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/url"
 	"os"
 	"os/signal"
 	"time"
@@ -21,7 +20,7 @@ type TCPConnWithStatus struct {
 	up   bool
 }
 
-var addr = flag.String("addr", "localhost:8080", "the middle websocket connector")
+var addr = flag.String("addr", "ws://localhost:8080", "the middle websocket connector")
 var channelId = flag.String("channel", "", "the channel ID (guid)")
 var remote = flag.String("remote", "localhost:22", "remote host:port to proxy to")
 
@@ -75,10 +74,10 @@ func main() {
 		}
 	}()
 
-	u := url.URL{Scheme: "ws", Host: *addr, Path: "/ws/proxy/" + *channelId}
-	log.Printf("connecting to %s", u.String())
+	u := *addr + "/ws/proxy/" + *channelId
+	log.Printf("connecting to %s", u)
 
-	ws, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(u, nil)
 	if err != nil {
 		log.Fatal("handshake failed with status ", resp.StatusCode)
 	}
