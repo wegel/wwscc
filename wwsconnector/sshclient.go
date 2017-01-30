@@ -5,6 +5,7 @@ package main
 import (
 	"log"
 	"strings"
+	"time"
 
 	"./wsconn"
 
@@ -34,10 +35,23 @@ func GetSupportedCiphers() []string {
 	return config.Ciphers
 }
 
-func sshShell(ws *websocket.Conn, proxy *Client, user string, cols int, rows int) {
+func sshShell(ws *websocket.Conn, proxy *Client, user string, cols int, rows int, pingPeriod time.Duration) {
 
 	defer func() {
 		ws.Close()
+	}()
+
+	go func() {
+		ticker := time.NewTicker(pingPeriod)
+		for {
+			select {
+			case <-ticker.C:
+				ws.SetWriteDeadline(time.Now().Add(writeWait))
+				if err := ws.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+					return
+				}
+			}
+		}
 	}()
 
 	wsWrapper, err := wsconn.NewConn(ws)

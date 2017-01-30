@@ -252,7 +252,7 @@ func sshClient(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 	username := r.URL.Query().Get("username")
 
 	log.Printf("SSH client parameters: user: %s cols: %v rows: %v\n", username, cols, rows)
-	sshShell(ws, hub.channels[id].proxy, username, cols, rows)
+	sshShell(ws, hub.channels[id].proxy, username, cols, rows, pingPeriod)
 }
 
 func updateSSH(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Params) {
