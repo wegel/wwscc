@@ -28,8 +28,8 @@ const (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:  1024 * 128,
+	WriteBufferSize: 1024 * 128,
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
@@ -66,10 +66,11 @@ type MessageWithWebsocketMessageType struct {
 }
 
 type Client struct {
-	hub       *Hub
-	conn      *websocket.Conn
-	otherSide *Client
-	channelId uuid.UUID
+	hub        *Hub
+	conn       *websocket.Conn
+	otherSide  *Client
+	channelId  uuid.UUID
+	remoteType string
 }
 
 func (h *Hub) handleMessages() {
@@ -112,10 +113,10 @@ func (h *Hub) handleMessages() {
 		case client := <-h.disconnected:
 			if channel, ok := h.channels[client.channelId]; ok {
 				log.Printf("Destroying tunnel for channel ID: %v", channel.id.String())
-				log.Printf("Trying to notify the other side")
+				/*log.Printf("Trying to notify the other side")
 				if client.otherSide != nil && client.otherSide.conn != nil {
 					client.otherSide.conn.WriteMessage(websocket.TextMessage, []byte("close"))
-				}
+				}*/
 
 				channel.proxy.otherSide = nil
 				channel.tunnel.otherSide = nil
@@ -129,7 +130,7 @@ func (h *Hub) handleMessages() {
 	}
 }
 
-func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Params, register chan<- *Client, remoteType string) {
+func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Params, register chan<- *Client, remoteType string, handler func(*Channel)) {
 	id, _ := uuid.Parse(p.ByName("id"))
 
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -143,47 +144,13 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 
 	register <- client
 
-	go read(ws, client, remoteType)
-	keepalive(ws)
-}
-
-func read(ws *websocket.Conn, client *Client, remoteType string) {
-	//ws.SetReadDeadline(time.Now().Add(pongWait))
-	ws.SetPongHandler(func(string) error { /*ws.SetReadDeadline(time.Now().Add(pongWait));*/ return nil })
-	for {
+	if handler != nil {
 		for client.otherSide == nil || client.otherSide.conn == nil {
-			time.Sleep(time.Millisecond * 50)
+			time.Sleep(time.Millisecond * 10)
 		}
-
-		msgType, message, err := ws.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-				log.Printf("%s read error, msg type %v, on channel %v: %v\n", remoteType, msgType, client.channelId, err)
-			}
-
-			if client.otherSide != nil {
-				log.Println("Channel closing, forwarding to other side")
-				client.otherSide.conn.WriteMessage(msgType, message)
-				client.conn.Close()
-			}
-
-			client.hub.disconnected <- client
-			break
-		} else {
-			switch msgType {
-			case websocket.BinaryMessage:
-				if client.otherSide != nil {
-					client.otherSide.conn.WriteMessage(websocket.BinaryMessage, message)
-				}
-			case websocket.TextMessage:
-				if client.otherSide != nil {
-					log.Println("Sending control message")
-					client.otherSide.conn.WriteMessage(msgType, []byte("close"))
-				}
-			}
-
-		}
+		go handler(hub.channels[client.channelId])
 	}
+	keepalive(ws)
 }
 
 func keepalive(ws *websocket.Conn) {
@@ -238,10 +205,6 @@ func sshClient(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 	sshShell(ws, hub.channels[id].proxy, username, cols, rows, pingPeriod)
 }
 
-func updateSSH(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	log.Printf("Updating SSH")
-}
-
 func main() {
 	flag.Parse()
 	hub := newHub()
@@ -252,18 +215,14 @@ func main() {
 	router.GET("/create", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) { createChannel(hub, w, r, p) })
 
 	router.GET("/ws/proxy/:id", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		setRemote(hub, w, r, p, hub.registerProxy, "proxy")
+		setRemote(hub, w, r, p, hub.registerProxy, "proxy", nil)
 	})
 	router.GET("/ws/tunnel/:id", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		setRemote(hub, w, r, p, hub.registerTunnel, "tunnel")
+		setRemote(hub, w, r, p, hub.registerTunnel, "tunnel", Passthrough)
 	})
 
 	router.GET("/ws/ssh/:id", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		sshClient(hub, w, r, p)
-	})
-
-	router.POST("/ws/ssh/:id", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		updateSSH(hub, w, r, p)
 	})
 
 	log.Printf("Listening on %s\n", *addr)
