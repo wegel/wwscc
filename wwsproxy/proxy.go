@@ -90,8 +90,6 @@ func main() {
 
 	go read(ws, fromWS, controlChan, done)
 	write(ws, toWS, done, interrupt)
-
-	log.Println("Terminating websocket read pump")
 }
 
 func read(ws *websocket.Conn, fromWS chan<- []byte, controlChan chan<- string, done chan struct{}) {
@@ -183,8 +181,11 @@ func handleTCP(ts *TCPConnWithStatus, fromTCP chan<- MessageWithWebsocketMessage
 	for {
 		select {
 		case controlMessage := <-controlChan:
-			log.Println("Got control message:", controlMessage)
-			return
+			switch controlMessage {
+			case "close":
+				log.Println("Got control message to close. Exiting.")
+				os.Exit(0)
+			}
 		}
 	}
 }
