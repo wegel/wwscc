@@ -27,7 +27,7 @@
             rows = initialGeometry.rows ;
 
         if (window["WebSocket"]) {
-            conn = new WebSocket("ws://" + window.location.host + "/ws/ssh/" + document.getElementById("channelId").value + '?username=' + document.getElementById("username").value + '&cols=' + cols + '&rows=' + rows);
+            conn = new WebSocket("ws://" + window.location.host + "/ws/tunnel/" + document.getElementById("channelId").value + '?username=' + document.getElementById("username").value + '&cols=' + cols + '&rows=' + rows);
             conn.onclose = function (evt) {
                 term.write("Connection closed.");
             };
@@ -53,7 +53,7 @@
         });
 
         term.on('paste', function (data, ev) {
-            term.write(data);
+            conn.send(data, { binary: true });
         });
 
         /*

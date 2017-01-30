@@ -4,16 +4,14 @@ package main
 
 import (
 	"log"
+	"strconv"
 	"strings"
-	"time"
 
 	"./wsconn"
 
 	"golang.org/x/crypto/ssh"
 
 	"bufio"
-
-	"github.com/gorilla/websocket"
 )
 
 func GetSupportedCiphers() []string {
@@ -35,13 +33,14 @@ func GetSupportedCiphers() []string {
 	return config.Ciphers
 }
 
-func sshShell(ws *websocket.Conn, proxy *Client, user string, cols int, rows int, pingPeriod time.Duration) {
+func sshShell(channel *Channel) {
 
 	defer func() {
-		ws.Close()
+		channel.tunnel.conn.Close()
+		channel.proxy.conn.Close()
 	}()
 
-	go func() {
+	/*go func() {
 		ticker := time.NewTicker(pingPeriod)
 		for {
 			select {
@@ -52,13 +51,16 @@ func sshShell(ws *websocket.Conn, proxy *Client, user string, cols int, rows int
 				}
 			}
 		}
-	}()
+	}()*/
 
-	wsWrapper, err := wsconn.NewConn(ws)
+	username := channel.tunnel.params["username"][0]
+	cols, _ := strconv.Atoi(channel.tunnel.params["cols"][0])
+	rows, _ := strconv.Atoi(channel.tunnel.params["rows"][0])
+	wsWrapper, err := wsconn.NewConn(channel.tunnel.conn)
 
 	config := &ssh.ClientConfig{
 		Config: ssh.Config{Ciphers: GetSupportedCiphers()},
-		User:   user,
+		User:   username,
 		Auth: []ssh.AuthMethod{
 			ssh.PasswordCallback(func() (string, error) {
 				wsWrapper.Write([]byte("Give Wégel the password: "))
@@ -75,7 +77,7 @@ func sshShell(ws *websocket.Conn, proxy *Client, user string, cols int, rows int
 		},
 	}
 
-	proxyConn, _ := wsconn.NewConn(proxy.conn)
+	proxyConn, _ := wsconn.NewConn(channel.proxy.conn)
 	c, chans, reqs, err := ssh.NewClientConn(proxyConn, "localhost", config)
 	if err != nil {
 		log.Println("Error NewClientConn:", err)
