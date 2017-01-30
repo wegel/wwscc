@@ -4,6 +4,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -19,11 +20,8 @@ const (
 	// Time allowed to write a message to the peer.
 	writeWait = 10 * time.Second
 
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 10 * time.Second
-
 	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 5) / 10
+	pingPeriod = (writeWait * 5) / 10
 )
 
 var upgrader = websocket.Upgrader{
@@ -37,8 +35,7 @@ var upgrader = websocket.Upgrader{
 type Hub struct {
 	channels       map[uuid.UUID]*Channel
 	createChannel  chan *Channel
-	registerProxy  chan *Client
-	registerTunnel chan *Client
+	registerClient chan *Client
 	disconnected   chan *Client
 }
 
@@ -46,8 +43,7 @@ func newHub() *Hub {
 	return &Hub{
 		channels:       make(map[uuid.UUID]*Channel),
 		createChannel:  make(chan *Channel),
-		registerProxy:  make(chan *Client),
-		registerTunnel: make(chan *Client),
+		registerClient: make(chan *Client),
 		disconnected:   make(chan *Client),
 	}
 }
@@ -69,9 +65,29 @@ type Client struct {
 	hub        *Hub
 	conn       *websocket.Conn
 	otherSide  *Client
-	channelId  uuid.UUID
+	channelID  uuid.UUID
 	remoteType string
 	params     map[string][]string
+}
+
+func (h *Hub) setClient(client *Client) {
+	if channel, ok := h.channels[client.channelID]; ok {
+		if client.remoteType == "tunnel" {
+			channel.tunnel = client
+		} else if client.remoteType == "proxy" {
+			channel.proxy = client
+		}
+
+		if channel.tunnel != nil && channel.proxy != nil {
+			log.Printf("Got both sides for channel ID: %v", client.channelID.String())
+			channel.tunnel.otherSide = channel.proxy
+			channel.proxy.otherSide = channel.tunnel
+			log.Println("Launching channel handler")
+			go channel.handler(channel)
+		}
+	} else {
+		log.Printf("Registering proxy failed for channel ID %v, channel ID unknown\n", client.channelID.String())
+	}
 }
 
 func (h *Hub) handleMessages() {
@@ -83,40 +99,13 @@ func (h *Hub) handleMessages() {
 			h.channels[channel.id] = channel
 
 		//the proxy is on the network that we can't reach
-		case client := <-h.registerProxy:
-			log.Printf("Registering proxy for channel ID: %v", client.channelId.String())
-			if channel, ok := h.channels[client.channelId]; ok {
-				channel.proxy = client
-				if channel.tunnel != nil {
-					log.Printf("Got both sides for channel ID: %v", client.channelId.String())
-					channel.tunnel.otherSide = channel.proxy
-					channel.proxy.otherSide = channel.tunnel
-					log.Println("Launching channel handler")
-					go channel.handler(channel)
-				}
-			} else {
-				log.Printf("Registering proxy failed for channel ID %v, channel ID unknown\n", client.channelId.String())
-			}
-
-		//the tunnel typically runs on our local computer
-		case client := <-h.registerTunnel:
-			log.Printf("Registering tunnel for channel ID: %v", client.channelId.String())
-			if channel, ok := h.channels[client.channelId]; ok {
-				channel.tunnel = client
-				if channel.proxy != nil {
-					log.Printf("Got both sides for channel ID: %v", client.channelId.String())
-					channel.tunnel.otherSide = channel.proxy
-					channel.proxy.otherSide = channel.tunnel
-					log.Println("Launching channel handler")
-					go channel.handler(channel)
-				}
-			} else {
-				log.Printf("Registering tunnel failed for channel ID %v, channel ID unknown\n", client.channelId.String())
-			}
+		case client := <-h.registerClient:
+			log.Printf("Registering %s for channel ID: %v", client.remoteType, client.channelID.String())
+			h.setClient(client)
 
 		//one of the sides disconnected, destroy the channel
 		case client := <-h.disconnected:
-			if channel, ok := h.channels[client.channelId]; ok {
+			if channel, ok := h.channels[client.channelID]; ok {
 				log.Printf("Destroying tunnel for channel ID: %v", channel.id.String())
 
 				channel.proxy.otherSide = nil
@@ -131,7 +120,7 @@ func (h *Hub) handleMessages() {
 	}
 }
 
-func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Params, register chan<- *Client, params map[string][]string) {
+func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Params, remoteType string, params map[string][]string) {
 	id, _ := uuid.Parse(p.ByName("id"))
 
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -141,12 +130,18 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 	}
 	defer ws.Close()
 
-	client := &Client{hub: hub, conn: ws, channelId: id, params: params}
-	register <- client
+	client := &Client{hub: hub, conn: ws, channelID: id, params: params, remoteType: remoteType}
+	hub.registerClient <- client
 	keepalive(ws)
 }
 
 func keepalive(ws *websocket.Conn) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Exception handled in keepalive: %v\n", r)
+		}
+	}()
+
 	ticker := time.NewTicker(pingPeriod)
 	for {
 		select {
@@ -195,15 +190,15 @@ func main() {
 		} else if channelHandlerType == "ssh" {
 			channelHandler = sshShell
 		}
-		log.Println("Asked to create channel of type ", channelHandlerType)
+		log.Println("Asked to create channel of type", channelHandlerType)
 		createChannel(hub, w, r, p, channelHandler)
 	})
 
 	router.GET("/ws/proxy/:id", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		setRemote(hub, w, r, p, hub.registerProxy, r.URL.Query())
+		setRemote(hub, w, r, p, "proxy", r.URL.Query())
 	})
 	router.GET("/ws/tunnel/:id", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		setRemote(hub, w, r, p, hub.registerTunnel, r.URL.Query())
+		setRemote(hub, w, r, p, "tunnel", r.URL.Query())
 	})
 
 	log.Printf("Listening on %s\n", *addr)

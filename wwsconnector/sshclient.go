@@ -3,9 +3,12 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"./wsconn"
 
@@ -34,24 +37,11 @@ func GetSupportedCiphers() []string {
 }
 
 func sshShell(channel *Channel) {
-
-	defer func() {
-		channel.tunnel.conn.Close()
-		channel.proxy.conn.Close()
-	}()
-
-	/*go func() {
-		ticker := time.NewTicker(pingPeriod)
-		for {
-			select {
-			case <-ticker.C:
-				ws.SetWriteDeadline(time.Now().Add(writeWait))
-				if err := ws.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-					return
-				}
-			}
+	defer func(id uuid.UUID) {
+		if r := recover(); r != nil {
+			fmt.Printf("Exception handled in sshShell for channel %v: %v\n", id, r)
 		}
-	}()*/
+	}(channel.id)
 
 	username := channel.tunnel.params["username"][0]
 	cols, _ := strconv.Atoi(channel.tunnel.params["cols"][0])
@@ -119,4 +109,7 @@ func sshShell(channel *Channel) {
 	if err := session.Wait(); nil != err {
 		log.Println("Unable to execute command:", err)
 	}
+
+	channel.tunnel.conn.Close()
+	channel.proxy.conn.Close()
 }
