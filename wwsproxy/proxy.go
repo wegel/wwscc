@@ -20,7 +20,7 @@ type TCPConnWithStatus struct {
 	up   bool
 }
 
-var addr = flag.String("addr", "ws://localhost:8080", "the middle websocket connector")
+var connectorUrl = flag.String("connector", "ws://localhost:8080", "the middle websocket connector")
 var channelId = flag.String("channel", "", "the channel ID (guid)")
 var remote = flag.String("remote", "localhost:22", "remote host:port to proxy to")
 
@@ -74,7 +74,7 @@ func main() {
 		}
 	}()
 
-	u := *addr + "/ws/proxy/" + *channelId
+	u := *connectorUrl + "/ws/proxy/" + *channelId
 	log.Printf("connecting to %s", u)
 
 	ws, resp, err := websocket.DefaultDialer.Dial(u, nil)
