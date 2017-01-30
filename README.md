@@ -1,3 +1,4 @@
+```
                              Firewall                          Firewall
           Firewalled            or                                or
            network          HTTP Proxy                        HTTP Proxy
@@ -28,3 +29,4 @@
 +-------------------------+     or                                or
                             HTTP Proxy                        HTTP Proxy
 
+```
