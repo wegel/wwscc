@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	tcpPort = kingpin.Flag("listen", "Listen to this TCP host:port instead of stdio").Default("").OverrideDefaultFromEnvar("WWS_TCP_LISTEN").Short('l').TCP()
-	wsURL   = kingpin.Arg("URL", "URL of the websocket server").Required().URL()
+	listenAddr = kingpin.Flag("listen", "Listen to this TCP host:port (instead of stdio)").Default("").OverrideDefaultFromEnvar("WWS_TCP_LISTEN").Short('l').TCP()
+	proxyAddr  = kingpin.Flag("proxy", "Proxy to this TCP host:port").Default("").OverrideDefaultFromEnvar("PROXY").Short('p').TCP()
+	wsURL      = kingpin.Arg("url", "URL of the websocket server").Required().URL()
 )
 
 func main() {
@@ -28,15 +29,20 @@ func main() {
 	var conn net.Conn
 	var err error
 
-	if *tcpPort != nil && (*tcpPort).Port != 0 {
-		log.Println("Setupping TCP listener on ", (*tcpPort).String())
-		conn, err = tcpConn(*tcpPort)
+	ready := make(chan struct{}, 1)
+
+	if *listenAddr != nil && (*listenAddr).Port != 0 {
+		log.Println("Setupping TCP listener on ", (*listenAddr).String())
+		conn, err = tcpConn(*listenAddr, ready)
+	} else if *proxyAddr != nil && (*proxyAddr).Port != 0 {
+		log.Println("Setupping TCP proxy to ", (*proxyAddr).String())
+		conn, err = NewCOWConn((*proxyAddr).String(), ready)
 	} else {
-		conn, err = stdioConn()
+		conn, err = NewStdioConn(ready)
 	}
 	kingpin.FatalIfError(err, "Couldn't create listener")
 
-	go write(conn, ws)
+	go write(conn, ws, ready)
 	read(conn, ws)
 }
 
@@ -50,18 +56,16 @@ func connect(url string) *websocket.Conn {
 	return ws
 }
 
-func tcpConn(addr *net.TCPAddr) (net.Conn, error) {
+func tcpConn(addr *net.TCPAddr, ready chan<- struct{}) (n net.Conn, err error) {
 	l, err := net.Listen("tcp", addr.String())
 	if err != nil {
 		fmt.Println("Error listening:", err.Error())
 		os.Exit(1)
 	}
 
-	return l.Accept()
-}
-
-func stdioConn() (net.Conn, error) {
-	return NewConn()
+	n, err = l.Accept()
+	ready <- struct{}{}
+	return n, err
 }
 
 func trapCtrlC(ws *websocket.Conn) {
@@ -76,8 +80,9 @@ func trapCtrlC(ws *websocket.Conn) {
 	}()
 }
 
-// stdin -> ws.
-func write(conn net.Conn, ws *websocket.Conn) {
+// stdin/conn -> ws.
+func write(conn net.Conn, ws *websocket.Conn, ready <-chan struct{}) {
+	_ = <-ready //wait for ready signal before starting read loop
 	//below WriteMessage returns when the data has been flushed, so safe to reuse buffer
 	buf := make([]byte, 64*1024) // pipe buffer is usually 64kb
 	for {
@@ -91,7 +96,7 @@ func write(conn net.Conn, ws *websocket.Conn) {
 	}
 }
 
-// ws -> stdout
+// ws -> stdout/conn
 func read(conn net.Conn, ws *websocket.Conn) {
 	for {
 		messageType, buf, err := ws.ReadMessage()
