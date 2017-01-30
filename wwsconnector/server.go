@@ -73,6 +73,12 @@ func (h *Hub) setClient(client *Client) {
 		}
 	} else {
 		log.Printf("Registering proxy failed for channel ID %v, channel ID unknown\n", client.channelID.String())
+
+		go func(client *Client) {
+			//tar trap potential attacker
+			time.Sleep(30 * time.Second)
+			client.ws.Close()
+		}(client)
 	}
 }
 
