@@ -108,44 +108,48 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 
 	register <- info
 
-	go func() {
-		for {
-			for client.otherSide == nil || client.otherSide.send == nil {
-				time.Sleep(time.Millisecond * 50)
-			}
+	go read(ws, client, remoteType)
+	write(ws, client, remoteType)
+}
 
-			msgType, message, err := ws.ReadMessage()
-			if err != nil {
-				log.Printf("%s read error: %v\n", remoteType, err)
-				break
-			} else {
-				switch msgType {
-				case websocket.BinaryMessage:
-					if client.otherSide != nil {
-						client.otherSide.send <- message
-					}
-				case websocket.TextMessage:
-					if client.otherSide != nil {
-						log.Println("Sending control message")
-						client.otherSide.control <- "close"
-					}
-				}
-
-			}
+func read(ws *websocket.Conn, client *Client, remoteType string) {
+	for {
+		for client.otherSide == nil || client.otherSide.send == nil {
+			time.Sleep(time.Millisecond * 50)
 		}
-	}()
 
+		msgType, message, err := ws.ReadMessage()
+		if err != nil {
+			log.Printf("%s read error: %v\n", remoteType, err)
+			break
+		} else {
+			switch msgType {
+			case websocket.BinaryMessage:
+				if client.otherSide != nil {
+					client.otherSide.send <- message
+				}
+			case websocket.TextMessage:
+				if client.otherSide != nil {
+					log.Println("Sending control message")
+					client.otherSide.control <- "close"
+				}
+			}
+
+		}
+	}
+}
+
+func write(ws *websocket.Conn, client *Client, remoteType string) {
 	for {
 		select {
 		case message := <-client.send:
-			err = ws.WriteMessage(websocket.BinaryMessage, message)
+			err := ws.WriteMessage(websocket.BinaryMessage, message)
 			if err != nil {
 				log.Printf("%s write error: %v\n", remoteType, err)
 				break
 			}
-			//log.Printf("%s send success\n", remoteType)
 		case controlMessage := <-client.control:
-			err = ws.WriteMessage(websocket.TextMessage, []byte(controlMessage))
+			ws.WriteMessage(websocket.TextMessage, []byte(controlMessage))
 		}
 	}
 }
