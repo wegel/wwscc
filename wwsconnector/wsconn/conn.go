@@ -5,19 +5,25 @@ import (
 	"net"
 	"time"
 
+	"sync"
+
 	"github.com/gorilla/websocket"
 )
 
 // Implement the net.Conn interface.
 // All data are transfered in binary stream.
 type Conn struct {
-	ws *websocket.Conn
-	r  io.Reader
+	ws  *websocket.Conn
+	wmu *sync.Mutex
+	rmu *sync.Mutex
+	r   io.Reader
 }
 
-func NewConn(ws *websocket.Conn) (conn *Conn, err error) {
+func NewConn(ws *websocket.Conn, wmu *sync.Mutex, rmu *sync.Mutex) (conn *Conn, err error) {
 	conn = &Conn{
-		ws: ws,
+		ws:  ws,
+		wmu: wmu,
+		rmu: rmu,
 	}
 	return
 }
@@ -31,7 +37,10 @@ func (conn *Conn) Read(b []byte) (n int, err error) {
 		// New message
 		var r io.Reader
 		for {
-			if messageType, r, err = conn.ws.NextReader(); err != nil {
+			conn.rmu.Lock()
+			messageType, r, err = conn.ws.NextReader()
+			conn.rmu.Unlock()
+			if err != nil {
 				return
 			}
 			if messageType != websocket.BinaryMessage && messageType != websocket.TextMessage {
@@ -43,6 +52,7 @@ func (conn *Conn) Read(b []byte) (n int, err error) {
 		}
 	}
 
+	//TODO: need lock?
 	n, err = conn.r.Read(b)
 	if err != nil {
 		if err == io.EOF {
@@ -59,12 +69,21 @@ func (conn *Conn) Read(b []byte) (n int, err error) {
 // after a fixed time limit; see SetDeadline and SetWriteDeadline.
 func (conn *Conn) Write(b []byte) (n int, err error) {
 	var w io.WriteCloser
-	if w, err = conn.ws.NextWriter(websocket.BinaryMessage); err != nil {
+
+	conn.wmu.Lock()
+	w, err = conn.ws.NextWriter(websocket.BinaryMessage)
+	conn.wmu.Unlock()
+
+	if err != nil {
 		return
 	}
-	if n, err = w.Write(b); err != nil {
+
+	n, err = w.Write(b)
+
+	if err != nil {
 		return
 	}
+
 	err = w.Close()
 	return
 }
@@ -99,22 +118,35 @@ func (conn *Conn) RemoteAddr() net.Addr {
 //
 // A zero value for t means I/O operations will not time out.
 func (conn *Conn) SetDeadline(t time.Time) (err error) {
-	if err = conn.ws.SetReadDeadline(t); err != nil {
+	conn.rmu.Lock()
+	err = conn.ws.SetReadDeadline(t)
+	conn.rmu.Unlock()
+	if err != nil {
 		return
 	}
-	return conn.ws.SetWriteDeadline(t)
+
+	conn.wmu.Lock()
+	err = conn.ws.SetWriteDeadline(t)
+	conn.wmu.Unlock()
+	return err
 }
 
 // SetReadDeadline sets the deadline for future Read calls.
 // A zero value for t means Read will not time out.
-func (conn *Conn) SetReadDeadline(t time.Time) error {
-	return conn.ws.SetReadDeadline(t)
+func (conn *Conn) SetReadDeadline(t time.Time) (err error) {
+	conn.rmu.Lock()
+	err = conn.ws.SetReadDeadline(t)
+	conn.rmu.Unlock()
+	return err
 }
 
 // SetWriteDeadline sets the deadline for future Write calls.
 // Even if write times out, it may return n > 0, indicating that
 // some of the data was successfully written.
 // A zero value for t means Write will not time out.
-func (conn *Conn) SetWriteDeadline(t time.Time) error {
-	return conn.ws.SetWriteDeadline(t)
+func (conn *Conn) SetWriteDeadline(t time.Time) (err error) {
+	conn.wmu.Lock()
+	err = conn.ws.SetWriteDeadline(t)
+	conn.wmu.Unlock()
+	return err
 }

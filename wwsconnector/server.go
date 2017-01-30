@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,6 +69,8 @@ type Client struct {
 	channelID  uuid.UUID
 	remoteType string
 	params     map[string][]string
+	wmu        sync.Mutex
+	rmu        sync.Mutex
 }
 
 func (h *Hub) setClient(client *Client) {
@@ -130,10 +133,10 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, channelID uuid.
 
 	client := &Client{hub: hub, conn: ws, channelID: channelID, params: params, remoteType: remoteType}
 	hub.registerClient <- client
-	keepalive(ws)
+	keepalive(client)
 }
 
-func keepalive(ws *websocket.Conn) {
+func keepalive(client *Client) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("Exception handled in keepalive: %v\n", r)
@@ -144,8 +147,11 @@ func keepalive(ws *websocket.Conn) {
 	for {
 		select {
 		case <-ticker.C:
-			ws.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := ws.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+			client.wmu.Lock()
+			client.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			err := client.conn.WriteMessage(websocket.PingMessage, []byte{})
+			client.wmu.Unlock()
+			if err != nil {
 				return
 			}
 		}

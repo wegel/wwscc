@@ -46,7 +46,7 @@ func sshShell(channel *Channel) {
 	username := channel.tunnel.params["username"][0]
 	cols, _ := strconv.Atoi(channel.tunnel.params["cols"][0])
 	rows, _ := strconv.Atoi(channel.tunnel.params["rows"][0])
-	wsWrapper, err := wsconn.NewConn(channel.tunnel.conn)
+	wsWrapper, err := wsconn.NewConn(channel.tunnel.conn, &channel.tunnel.wmu, &channel.tunnel.rmu)
 
 	config := &ssh.ClientConfig{
 		Config: ssh.Config{Ciphers: GetSupportedCiphers()},
@@ -67,7 +67,7 @@ func sshShell(channel *Channel) {
 		},
 	}
 
-	proxyConn, _ := wsconn.NewConn(channel.proxy.conn)
+	proxyConn, _ := wsconn.NewConn(channel.proxy.conn, &channel.proxy.wmu, &channel.proxy.rmu)
 	c, chans, reqs, err := ssh.NewClientConn(proxyConn, "localhost", config)
 	if err != nil {
 		log.Println("Error NewClientConn:", err)
