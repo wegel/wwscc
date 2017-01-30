@@ -1,0 +1,105 @@
+<html>
+  <head>
+    <title>SSH Terminal</title>
+    <link rel="stylesheet" href="/xterm/xterm.css" />
+    <script src="/xterm/xterm.js"></script>
+    <script src="/xterm/addons/attach/attach.js" ></script>
+    <script src="/xterm/addons/fit/fit.js" ></script>
+    <script src="/xterm/addons/fullscreen/fullscreen.js" ></script>
+    <link rel="stylesheet" href="/xterm/addons/fullscreen/fullscreen.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fetch/1.0.0/fetch.min.js"></script>
+
+    <script>
+      var once = false,
+        charWidth,
+        charHeight;
+
+      function connectTerminal() {
+
+        inputs.style.display = 'none';
+        var terminalContainer = document.getElementById('terminal-container');
+        var term = new Terminal({ cursorBlink: true });
+        term.open(terminalContainer);
+        
+        term.fit();
+        var initialGeometry = term.proposeGeometry(),
+            cols = initialGeometry.cols,
+            rows = initialGeometry.rows ;
+
+        if (window["WebSocket"]) {
+            conn = new WebSocket("ws://localhost:8080/ws/ssh/" + document.getElementById("channelId").value + '?username=' + document.getElementById("username").value + '&cols=' + cols + '&rows=' + rows);
+            conn.onclose = function (evt) {
+                term.write("Connection closed.");
+            };
+            conn.onmessage = function (evt) {
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    term.write(e.target.result);
+                }
+                reader.readAsText(evt.data)
+            };
+        } else {
+            term.write("Your browser does not support WebSockets.");
+        }
+
+        term.on('key', function (key, ev) {
+            if(once == false && ev.keyCode == 13) {
+                end = "\r\n";
+                once = true;
+                conn.send(end, { binary: true });
+                return;
+            }
+            conn.send(key, { binary: true });
+        });
+
+        term.on('paste', function (data, ev) {
+            term.write(data);
+        });
+
+        /*
+        term.on('resize', function (size) {
+            var cols = size.cols,
+                rows = size.rows,
+                url = 'http://localhost:8080/ws/ssh/' + document.getElementById("channelId").value + '?username=' + document.getElementById("channelId").value + '&cols=' + cols + '&rows=' + rows;
+
+            fetch(url, {method: 'POST'});
+        });
+        */
+        
+      }
+    </script>
+    <style>
+      body {
+        font-family: helvetica, sans-serif, arial;
+        font-size: 1em;
+        color: #111;
+        height:98%;position:relative;
+        
+      }
+      h1 {
+        text-align: center;
+      }
+      
+      #terminal-container .terminal {
+        background-color: #111;
+        color: #fafafa;
+        padding: 2px;
+        height:98%;
+      }
+      #terminal-container .terminal:focus .terminal-cursor {
+        background-color: #fafafa;
+      }
+      #inputs {
+          font-weight: bold;
+          font-size: 140%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="inputs">
+    Username: <input type="text" id="username" value="root"/><br/>
+    Channel ID: <input type="text" id="channelId"/><button onclick="connectTerminal()">Connect to channel ID</button>
+    </div>
+    <div id="terminal-container"></div>
+  </body>
+</html>
