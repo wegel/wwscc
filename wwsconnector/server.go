@@ -4,7 +4,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -99,13 +98,20 @@ func (h *Hub) handleMessages() {
 		case client := <-h.disconnected:
 			if channel, ok := h.channels[client.channelID]; ok {
 				log.Printf("Destroying tunnel for channel ID: %v", channel.id.String())
-
-				channel.proxy.otherSide = nil
-				channel.tunnel.otherSide = nil
-
-				channel.tunnel = nil
-				channel.proxy = nil
-
+				if channel.proxy != nil {
+					if channel.proxy.ws != nil {
+						channel.proxy.ws.Close()
+					}
+					channel.proxy.otherSide = nil
+					channel.proxy = nil
+				}
+				if channel.tunnel != nil {
+					if channel.tunnel.ws != nil {
+						channel.tunnel.ws.Close()
+					}
+					channel.tunnel.otherSide = nil
+					channel.tunnel = nil
+				}
 				delete(h.channels, channel.id)
 			}
 		}
@@ -127,11 +133,9 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, channelID uuid.
 
 func keepalive(client *Client) {
 	defer func() {
+		client.hub.disconnected <- client
 		if r := recover(); r != nil {
-			fmt.Printf("Exception handled in keepalive: %v\n", r)
-			if client.ws != nil {
-				client.ws.Close()
-			}
+			log.Printf("error in keepalive for %s on %s: %v", client.remoteType, client.channelID, r)
 		}
 	}()
 
@@ -140,10 +144,10 @@ func keepalive(client *Client) {
 		select {
 		case <-ticker.C:
 			if err := client.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				log.Printf("error in keepalive for %s on %s: %v", client.remoteType, client.channelID, err)
+				panic(err)
 			}
 			if err := client.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				log.Printf("error in keepalive for %s on %s: %v", client.remoteType, client.channelID, err)
+				panic(err)
 			}
 		}
 	}
