@@ -14,7 +14,18 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
-var addr = flag.String("addr", "localhost:8080", "http service address")
+var addr = flag.String("addr", "0.0.0.0:80", "http service address")
+
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 10 * time.Second
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 5) / 10
+)
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -113,6 +124,8 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 }
 
 func read(ws *websocket.Conn, client *Client, remoteType string) {
+	ws.SetReadDeadline(time.Now().Add(pongWait))
+	ws.SetPongHandler(func(string) error { ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
 		for client.otherSide == nil || client.otherSide.send == nil {
 			time.Sleep(time.Millisecond * 50)
@@ -140,6 +153,8 @@ func read(ws *websocket.Conn, client *Client, remoteType string) {
 }
 
 func write(ws *websocket.Conn, client *Client, remoteType string) {
+
+	ticker := time.NewTicker(pingPeriod)
 	for {
 		select {
 		case message := <-client.send:
@@ -150,6 +165,11 @@ func write(ws *websocket.Conn, client *Client, remoteType string) {
 			}
 		case controlMessage := <-client.control:
 			ws.WriteMessage(websocket.TextMessage, []byte(controlMessage))
+		case <-ticker.C:
+			ws.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := ws.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -221,6 +241,8 @@ func main() {
 		updateSSH(hub, w, r, p)
 	})
 
+	log.Printf("Listening on %s\n", *addr)
+	log.Printf("Pinging every %v seconds\n", pingPeriod)
 	go hub.handleMessages()
 	log.Fatal(http.ListenAndServe(*addr, router))
 }
