@@ -95,7 +95,11 @@ func read(ws *websocket.Conn, fromWS chan<- []byte, controlChan chan<- string, d
 		msgType, message, err := ws.ReadMessage()
 		if err != nil {
 			log.Println("read:", err)
-			return
+			err := ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			if err != nil {
+				log.Println("write close:", err)
+			}
+			os.Exit(1)
 		}
 
 		switch msgType {
