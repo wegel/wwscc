@@ -25,4 +25,5 @@ _testmain.go
 
 wwscat/wwscat
 wwsconnector/wwsconnector
+wwsproxy/wwsproxy
 .last_id
