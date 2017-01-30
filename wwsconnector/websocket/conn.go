@@ -3,7 +3,6 @@ package main
 import (
 	"io"
 	"net"
-	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -16,32 +15,6 @@ type Conn struct {
 	r  io.Reader
 }
 
-// Connect a web socket hosr, and upgrade to web socket.
-//
-// Examples:
-//	Connect("http://localhost:8081/websocket", 1024, 1024)
-func Connect(urlstr string, readBufSize, writeBufSize int) (conn *Conn, resp *http.Response, err error) {
-	/*var u *url.URL
-	var ws *websocket.Conn
-	var c net.Conn
-	if u, err = url.Parse(urlstr); err != nil {
-		return
-	}
-	if c, err = net.Dial("tcp", u.Host); err != nil {
-		return
-	}
-	if ws, resp, err = websocket.NewClient(c, u, http.Header{"Origin": {urlstr}},
-		readBufSize, writeBufSize); err != nil {
-		c.Close()
-		return
-	}
-	conn = &Conn{
-		ws: ws,
-	}*/
-	return
-}
-
-// Create a server side connection.
 func NewConn(ws *websocket.Conn) (conn *Conn, err error) {
 	conn = &Conn{
 		ws: ws,
@@ -71,7 +44,6 @@ func (conn *Conn) Read(b []byte) (n int, err error) {
 	}
 
 	n, err = conn.r.Read(b)
-	//log.Printf("ssh recv (%v): %s\n", n, b)
 	if err != nil {
 		if err == io.EOF {
 			// Message finished
@@ -86,7 +58,6 @@ func (conn *Conn) Read(b []byte) (n int, err error) {
 // Write can be made to time out and return a Error with Timeout() == true
 // after a fixed time limit; see SetDeadline and SetWriteDeadline.
 func (conn *Conn) Write(b []byte) (n int, err error) {
-	//log.Printf("ssh send (%v): %s\n", len(b), b)
 	var w io.WriteCloser
 	if w, err = conn.ws.NextWriter(websocket.BinaryMessage); err != nil {
 		return
