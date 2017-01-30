@@ -38,16 +38,16 @@ var upgrader = websocket.Upgrader{
 type Hub struct {
 	channels       map[uuid.UUID]*Channel
 	createChannel  chan *Channel
-	registerProxy  chan *Register
-	registerTunnel chan *Register
+	registerProxy  chan *Client
+	registerTunnel chan *Client
 }
 
 func newHub() *Hub {
 	return &Hub{
 		channels:       make(map[uuid.UUID]*Channel),
 		createChannel:  make(chan *Channel),
-		registerProxy:  make(chan *Register),
-		registerTunnel: make(chan *Register),
+		registerProxy:  make(chan *Client),
+		registerTunnel: make(chan *Client),
 	}
 }
 
@@ -58,18 +58,13 @@ type Channel struct {
 	hub    *Hub
 }
 
-type Register struct {
-	remote *Client
-	id     uuid.UUID
-	hub    *Hub
-}
-
 type Client struct {
 	hub       *Hub
 	conn      *websocket.Conn
 	send      chan []byte
 	control   chan string
 	otherSide *Client
+	channelId uuid.UUID
 }
 
 func (h *Hub) handleMessages() {
@@ -81,29 +76,29 @@ func (h *Hub) handleMessages() {
 			h.channels[channel.id] = channel
 
 		//the proxy is on the network that we can't reach
-		case info := <-h.registerProxy:
-			log.Printf("Registering proxy for channel ID: %v", info.id.String())
-			h.channels[info.id].proxy = info.remote
-			if h.channels[info.id].tunnel != nil {
-				log.Printf("Got both sides for channel ID: %v", info.id.String())
-				h.channels[info.id].tunnel.otherSide = h.channels[info.id].proxy
-				h.channels[info.id].proxy.otherSide = h.channels[info.id].tunnel
+		case client := <-h.registerProxy:
+			log.Printf("Registering proxy for channel ID: %v", client.channelId.String())
+			h.channels[client.channelId].proxy = client
+			if h.channels[client.channelId].tunnel != nil {
+				log.Printf("Got both sides for channel ID: %v", client.channelId.String())
+				h.channels[client.channelId].tunnel.otherSide = h.channels[client.channelId].proxy
+				h.channels[client.channelId].proxy.otherSide = h.channels[client.channelId].tunnel
 			}
 
 		//the tunnel typically runs on our local computer
-		case info := <-h.registerTunnel:
-			log.Printf("Registering tunnel for channel ID: %v", info.id.String())
-			h.channels[info.id].tunnel = info.remote
-			if h.channels[info.id].proxy != nil {
-				log.Printf("Got both sides for channel ID: %v", info.id.String())
-				h.channels[info.id].tunnel.otherSide = h.channels[info.id].proxy
-				h.channels[info.id].proxy.otherSide = h.channels[info.id].tunnel
+		case client := <-h.registerTunnel:
+			log.Printf("Registering tunnel for channel ID: %v", client.channelId.String())
+			h.channels[client.channelId].tunnel = client
+			if h.channels[client.channelId].proxy != nil {
+				log.Printf("Got both sides for channel ID: %v", client.channelId.String())
+				h.channels[client.channelId].tunnel.otherSide = h.channels[client.channelId].proxy
+				h.channels[client.channelId].proxy.otherSide = h.channels[client.channelId].tunnel
 			}
 		}
 	}
 }
 
-func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Params, register chan<- *Register, remoteType string) {
+func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Params, register chan<- *Client, remoteType string) {
 	id, _ := uuid.Parse(p.ByName("id"))
 
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -113,19 +108,17 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 	}
 	defer ws.Close()
 
-	client := &Client{hub: hub, conn: ws, send: make(chan []byte, 2048), control: make(chan string, 256)}
+	client := &Client{hub: hub, conn: ws, channelId: id, send: make(chan []byte, 2048), control: make(chan string, 256)}
 
-	info := &Register{hub: hub, id: id, remote: client}
-
-	register <- info
+	register <- client
 
 	go read(ws, client, remoteType)
 	write(ws, client, remoteType)
 }
 
 func read(ws *websocket.Conn, client *Client, remoteType string) {
-	ws.SetReadDeadline(time.Now().Add(pongWait))
-	ws.SetPongHandler(func(string) error { ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	//ws.SetReadDeadline(time.Now().Add(pongWait))
+	ws.SetPongHandler(func(string) error { /*ws.SetReadDeadline(time.Now().Add(pongWait));*/ return nil })
 	for {
 		for client.otherSide == nil || client.otherSide.send == nil {
 			time.Sleep(time.Millisecond * 50)
@@ -133,7 +126,7 @@ func read(ws *websocket.Conn, client *Client, remoteType string) {
 
 		msgType, message, err := ws.ReadMessage()
 		if err != nil {
-			log.Printf("%s read error: %v\n", remoteType, err)
+			log.Printf("%s read error on channel %v: %v\n", remoteType, client.channelId, err)
 			break
 		} else {
 			switch msgType {
@@ -153,14 +146,13 @@ func read(ws *websocket.Conn, client *Client, remoteType string) {
 }
 
 func write(ws *websocket.Conn, client *Client, remoteType string) {
-
 	ticker := time.NewTicker(pingPeriod)
 	for {
 		select {
 		case message := <-client.send:
 			err := ws.WriteMessage(websocket.BinaryMessage, message)
 			if err != nil {
-				log.Printf("%s write error: %v\n", remoteType, err)
+				log.Printf("%s write error on channel %v: %v\n", remoteType, client.channelId, err)
 				break
 			}
 		case controlMessage := <-client.control:
