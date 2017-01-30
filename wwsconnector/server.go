@@ -58,10 +58,15 @@ type Channel struct {
 	hub    *Hub
 }
 
+type MessageWithWebsocketMessageType struct {
+	message     []byte
+	messageType int
+}
+
 type Client struct {
 	hub       *Hub
 	conn      *websocket.Conn
-	send      chan []byte
+	send      chan MessageWithWebsocketMessageType
 	control   chan string
 	otherSide *Client
 	channelId uuid.UUID
@@ -117,7 +122,7 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 	}
 	defer ws.Close()
 
-	client := &Client{hub: hub, conn: ws, channelId: id, send: make(chan []byte, 2048), control: make(chan string, 256)}
+	client := &Client{hub: hub, conn: ws, channelId: id, send: make(chan MessageWithWebsocketMessageType, 2048), control: make(chan string, 256)}
 
 	register <- client
 
@@ -141,7 +146,7 @@ func read(ws *websocket.Conn, client *Client, remoteType string) {
 			switch msgType {
 			case websocket.BinaryMessage:
 				if client.otherSide != nil {
-					client.otherSide.send <- message
+					client.otherSide.send <- MessageWithWebsocketMessageType{message: message, messageType: websocket.BinaryMessage}
 				}
 			case websocket.TextMessage:
 				if client.otherSide != nil {
@@ -158,8 +163,8 @@ func write(ws *websocket.Conn, client *Client, remoteType string) {
 	ticker := time.NewTicker(pingPeriod)
 	for {
 		select {
-		case message := <-client.send:
-			err := ws.WriteMessage(websocket.BinaryMessage, message)
+		case mwmt := <-client.send:
+			err := ws.WriteMessage(mwmt.messageType, mwmt.message)
 			if err != nil {
 				log.Printf("%s write error on channel %v: %v\n", remoteType, client.channelId, err)
 				break
