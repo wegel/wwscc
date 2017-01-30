@@ -4,6 +4,8 @@ import (
 	"log"
 	"strings"
 
+	"./wsconn"
+
 	"golang.org/x/crypto/ssh"
 
 	"bufio"
@@ -36,7 +38,7 @@ func sshShell(ws *websocket.Conn, proxy *Client, user string, cols int, rows int
 		ws.Close()
 	}()
 
-	wsWrapper, err := NewConn(ws)
+	wsWrapper, err := wsconn.NewConn(ws)
 
 	config := &ssh.ClientConfig{
 		Config: ssh.Config{Ciphers: GetSupportedCiphers()},
@@ -57,7 +59,7 @@ func sshShell(ws *websocket.Conn, proxy *Client, user string, cols int, rows int
 		},
 	}
 
-	proxyConn, _ := NewConn(proxy.conn)
+	proxyConn, _ := wsconn.NewConn(proxy.conn)
 	c, chans, reqs, err := ssh.NewClientConn(proxyConn, "localhost", config)
 	if err != nil {
 		log.Println("Error NewClientConn:", err)
