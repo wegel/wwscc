@@ -68,8 +68,6 @@ type MessageWithWebsocketMessageType struct {
 type Client struct {
 	hub       *Hub
 	conn      *websocket.Conn
-	send      chan MessageWithWebsocketMessageType
-	control   chan string
 	otherSide *Client
 	channelId uuid.UUID
 }
@@ -115,18 +113,12 @@ func (h *Hub) handleMessages() {
 			if channel, ok := h.channels[client.channelId]; ok {
 				log.Printf("Destroying tunnel for channel ID: %v", channel.id.String())
 				log.Printf("Trying to notify the other side")
-				if client.otherSide != nil && client.otherSide.control != nil {
-					client.otherSide.control <- "close"
+				if client.otherSide != nil && client.otherSide.conn != nil {
+					client.otherSide.conn.WriteMessage(websocket.TextMessage, []byte("close"))
 				}
 
 				channel.proxy.otherSide = nil
 				channel.tunnel.otherSide = nil
-
-				channel.proxy.send = nil
-				channel.proxy.control = nil
-
-				channel.tunnel.send = nil
-				channel.tunnel.control = nil
 
 				channel.tunnel = nil
 				channel.proxy = nil
@@ -147,19 +139,19 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 	}
 	defer ws.Close()
 
-	client := &Client{hub: hub, conn: ws, channelId: id, send: make(chan MessageWithWebsocketMessageType, 2048), control: make(chan string, 256)}
+	client := &Client{hub: hub, conn: ws, channelId: id}
 
 	register <- client
 
 	go read(ws, client, remoteType)
-	write(ws, client, remoteType)
+	keepalive(ws)
 }
 
 func read(ws *websocket.Conn, client *Client, remoteType string) {
 	//ws.SetReadDeadline(time.Now().Add(pongWait))
 	ws.SetPongHandler(func(string) error { /*ws.SetReadDeadline(time.Now().Add(pongWait));*/ return nil })
 	for {
-		for client.otherSide == nil || client.otherSide.send == nil {
+		for client.otherSide == nil || client.otherSide.conn == nil {
 			time.Sleep(time.Millisecond * 50)
 		}
 
@@ -171,7 +163,7 @@ func read(ws *websocket.Conn, client *Client, remoteType string) {
 
 			if client.otherSide != nil {
 				log.Println("Channel closing, forwarding to other side")
-				client.otherSide.send <- MessageWithWebsocketMessageType{message: message, messageType: msgType}
+				client.otherSide.conn.WriteMessage(msgType, message)
 				client.conn.Close()
 			}
 
@@ -181,12 +173,12 @@ func read(ws *websocket.Conn, client *Client, remoteType string) {
 			switch msgType {
 			case websocket.BinaryMessage:
 				if client.otherSide != nil {
-					client.otherSide.send <- MessageWithWebsocketMessageType{message: message, messageType: websocket.BinaryMessage}
+					client.otherSide.conn.WriteMessage(websocket.BinaryMessage, message)
 				}
 			case websocket.TextMessage:
 				if client.otherSide != nil {
 					log.Println("Sending control message")
-					client.otherSide.control <- "close"
+					client.otherSide.conn.WriteMessage(msgType, []byte("close"))
 				}
 			}
 
@@ -194,19 +186,10 @@ func read(ws *websocket.Conn, client *Client, remoteType string) {
 	}
 }
 
-func write(ws *websocket.Conn, client *Client, remoteType string) {
+func keepalive(ws *websocket.Conn) {
 	ticker := time.NewTicker(pingPeriod)
 	for {
 		select {
-		case mwmt := <-client.send:
-			err := ws.WriteMessage(mwmt.messageType, mwmt.message)
-			if err != nil {
-				log.Printf("%s write error on channel %v: %v\n", remoteType, client.channelId, err)
-				client.hub.disconnected <- client
-				break
-			}
-		case controlMessage := <-client.control:
-			ws.WriteMessage(websocket.TextMessage, []byte(controlMessage))
 		case <-ticker.C:
 			ws.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := ws.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
