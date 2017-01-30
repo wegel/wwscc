@@ -35,6 +35,7 @@ func GetSupportedCiphers() []string {
 
 func sshShell(channel *Channel) {
 	defer func(id uuid.UUID) {
+		channel.proxy.hub.disconnected <- channel.proxy
 		if r := recover(); r != nil {
 			fmt.Printf("Exception handled in sshShell for channel %v: %v\n", id, r)
 		}
@@ -50,7 +51,7 @@ func sshShell(channel *Channel) {
 		User:   username,
 		Auth: []ssh.AuthMethod{
 			ssh.PasswordCallback(func() (string, error) {
-				wsWrapper.Write([]byte("Give Wégel the password: "))
+				wsWrapper.Write([]byte(fmt.Sprintf("%s password: ", username)))
 
 				scanner := bufio.NewScanner(wsWrapper)
 				scanner.Scan()
