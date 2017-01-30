@@ -20,6 +20,11 @@ type TCPConnWithStatus struct {
 	up   bool
 }
 
+type MessageWithWebsocketMessageType struct {
+	message     []byte
+	messageType int
+}
+
 var connectorUrl = flag.String("connector", "ws://localhost:8080", "the middle websocket connector")
 var channelId = flag.String("channel", "", "the channel ID (guid)")
 var remote = flag.String("remote", "localhost:22", "remote host:port to proxy to")
@@ -36,7 +41,7 @@ func main() {
 	signal.Notify(interrupt, os.Interrupt)
 
 	done := make(chan struct{})
-	toWS := make(chan []byte)
+	toWS := make(chan MessageWithWebsocketMessageType)
 	fromWS := make(chan []byte)
 	controlChan := make(chan string)
 
@@ -114,11 +119,11 @@ func read(ws *websocket.Conn, fromWS chan<- []byte, controlChan chan<- string, d
 	return
 }
 
-func write(ws *websocket.Conn, toWS <-chan []byte, done chan struct{}, interrupt chan os.Signal) {
+func write(ws *websocket.Conn, toWS <-chan MessageWithWebsocketMessageType, done chan struct{}, interrupt chan os.Signal) {
 	for {
 		select {
-		case message := <-toWS:
-			if err := ws.WriteMessage(websocket.BinaryMessage, message); err != nil {
+		case mwmt := <-toWS:
+			if err := ws.WriteMessage(mwmt.messageType, mwmt.message); err != nil {
 				log.Fatalln("Error while sending message to ws:", err)
 			}
 		case <-interrupt:
@@ -140,7 +145,7 @@ func write(ws *websocket.Conn, toWS <-chan []byte, done chan struct{}, interrupt
 	}
 }
 
-func handleTCP(ts *TCPConnWithStatus, fromTCP chan<- []byte, controlChan <-chan string) {
+func handleTCP(ts *TCPConnWithStatus, fromTCP chan<- MessageWithWebsocketMessageType, controlChan <-chan string) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("Recovered in f", r)
@@ -160,12 +165,13 @@ func handleTCP(ts *TCPConnWithStatus, fromTCP chan<- []byte, controlChan <-chan 
 
 			switch err {
 			case io.EOF:
-				fmt.Println("EOF")
+				fmt.Println("TCP EOF, sending close control message and exiting")
+				fromTCP <- MessageWithWebsocketMessageType{message: []byte("close"), messageType: websocket.TextMessage}
 				return
 
 			case nil:
 				message := buf[:n]
-				fromTCP <- message
+				fromTCP <- MessageWithWebsocketMessageType{message: message, messageType: websocket.BinaryMessage}
 
 			default:
 				log.Printf("Receive data failed:%s\n", err)
