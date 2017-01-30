@@ -1,3 +1,5 @@
+// Author: Simon Labrecque <simon@wegel.ca>
+
 package main
 
 import (

@@ -1,7 +1,8 @@
+// Author: Simon Labrecque <simon@wegel.ca>
+
 package main
 
 import (
-	"crypto/md5"
 	"flag"
 	"log"
 	"net/http"
@@ -118,7 +119,6 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 				log.Printf("%s read error: %v\n", remoteType, err)
 				break
 			} else {
-				log.Printf("%s recv (%v): %x\n", remoteType, len(message), md5.Sum(message))
 				switch msgType {
 				case websocket.BinaryMessage:
 					if client.otherSide != nil {
@@ -138,8 +138,6 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 	for {
 		select {
 		case message := <-client.send:
-
-			log.Printf("%s send (%v): %x\n", remoteType, len(message), md5.Sum(message))
 			err = ws.WriteMessage(websocket.BinaryMessage, message)
 			if err != nil {
 				log.Printf("%s write error: %v\n", remoteType, err)

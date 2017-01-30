@@ -1,13 +1,8 @@
-// Copyright 2015 The Gorilla WebSocket Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
-// +build ignore
+// Author: Simon Labrecque <simon@wegel.ca>
 
 package main
 
 import (
-	"crypto/md5"
 	"flag"
 	"fmt"
 	"io"
@@ -69,7 +64,6 @@ func main() {
 					ts.up = true
 					go handleTCP(&ts, toWS, controlChan)
 				}
-				log.Printf("proxy send to tcp(%v): %x\n", len(message), md5.Sum(message))
 				if n, err := ts.conn.Write(message); err != nil || n < len(message) {
 					if err != nil {
 						log.Fatalln("Error while writing to TCP", err)
@@ -101,7 +95,6 @@ func main() {
 			} else {
 				switch msgType {
 				case websocket.BinaryMessage:
-					log.Printf("proxy recv from ws(%v): %x\n", len(message), md5.Sum(message))
 					fromWS <- message
 				case websocket.TextMessage:
 					controlChan <- string(message)
@@ -115,7 +108,6 @@ func main() {
 	for {
 		select {
 		case message := <-toWS:
-			log.Printf("proxy send to ws(%v): %x\n", len(message), md5.Sum(message))
 			if err := ws.WriteMessage(websocket.BinaryMessage, message); err != nil {
 				log.Fatalln("Error while sending message to ws:", err)
 			}
@@ -164,7 +156,6 @@ func handleTCP(ts *TCPConnWithStatus, fromTCP chan<- []byte, controlChan <-chan 
 
 			case nil:
 				message := buf[:n]
-				log.Printf("proxy recv from tcp(%v): %x\n", len(message), md5.Sum(message))
 				fromTCP <- message
 
 			default:
