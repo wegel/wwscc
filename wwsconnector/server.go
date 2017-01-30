@@ -40,6 +40,7 @@ type Hub struct {
 	createChannel  chan *Channel
 	registerProxy  chan *Client
 	registerTunnel chan *Client
+	disconnected   chan *Client
 }
 
 func newHub() *Hub {
@@ -48,6 +49,7 @@ func newHub() *Hub {
 		createChannel:  make(chan *Channel),
 		registerProxy:  make(chan *Client),
 		registerTunnel: make(chan *Client),
+		disconnected:   make(chan *Client),
 	}
 }
 
@@ -107,6 +109,29 @@ func (h *Hub) handleMessages() {
 			} else {
 				log.Printf("Registering tunnel failed for channel ID %v, channel ID unknown\n", client.channelId.String())
 			}
+
+		//one of the sides disconnected, destroy the channel
+		case client := <-h.disconnected:
+			if channel, ok := h.channels[client.channelId]; ok {
+				log.Printf("Destroying tunnel for channel ID: %v", channel.id.String())
+				log.Printf("Trying to notify the other side")
+				if client.otherSide != nil && client.otherSide.control != nil {
+					client.otherSide.control <- "close"
+				}
+
+				channel.proxy.otherSide = nil
+				channel.tunnel.otherSide = nil
+
+				channel.proxy.send = nil
+				channel.proxy.control = nil
+
+				channel.tunnel.send = nil
+				channel.tunnel.control = nil
+
+				channel.tunnel = nil
+				channel.proxy = nil
+
+				delete(h.channels, channel.id)
 			}
 		}
 	}
@@ -140,7 +165,17 @@ func read(ws *websocket.Conn, client *Client, remoteType string) {
 
 		msgType, message, err := ws.ReadMessage()
 		if err != nil {
-			log.Printf("%s read error on channel %v: %v\n", remoteType, client.channelId, err)
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+				log.Printf("%s read error, msg type %v, on channel %v: %v\n", remoteType, msgType, client.channelId, err)
+			}
+
+			if client.otherSide != nil {
+				log.Println("Channel closing, forwarding to other side")
+				client.otherSide.send <- MessageWithWebsocketMessageType{message: message, messageType: msgType}
+				client.conn.Close()
+			}
+
+			client.hub.disconnected <- client
 			break
 		} else {
 			switch msgType {
@@ -167,6 +202,7 @@ func write(ws *websocket.Conn, client *Client, remoteType string) {
 			err := ws.WriteMessage(mwmt.messageType, mwmt.message)
 			if err != nil {
 				log.Printf("%s write error on channel %v: %v\n", remoteType, client.channelId, err)
+				client.hub.disconnected <- client
 				break
 			}
 		case controlMessage := <-client.control:
