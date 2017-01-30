@@ -20,14 +20,14 @@
         var terminalContainer = document.getElementById('terminal-container');
         var term = new Terminal({ cursorBlink: true });
         term.open(terminalContainer);
-        
-        term.fit();
+
+	term.fit();
         var initialGeometry = term.proposeGeometry(),
             cols = initialGeometry.cols,
             rows = initialGeometry.rows ;
 
         if (window["WebSocket"]) {
-            conn = new WebSocket("ws://localhost:8080/ws/ssh/" + document.getElementById("channelId").value + '?username=' + document.getElementById("username").value + '&cols=' + cols + '&rows=' + rows);
+            conn = new WebSocket("ws://" + window.location.host + "/ws/ssh/" + document.getElementById("channelId").value + '?username=' + document.getElementById("username").value + '&cols=' + cols + '&rows=' + rows);
             conn.onclose = function (evt) {
                 term.write("Connection closed.");
             };
@@ -65,7 +65,6 @@
             fetch(url, {method: 'POST'});
         });
         */
-        
       }
     </script>
     <style>
@@ -74,12 +73,10 @@
         font-size: 1em;
         color: #111;
         height:98%;position:relative;
-        
       }
       h1 {
         text-align: center;
       }
-      
       #terminal-container .terminal {
         background-color: #111;
         color: #fafafa;
