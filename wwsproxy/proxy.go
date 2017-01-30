@@ -85,26 +85,34 @@ func main() {
 	}
 	defer ws.Close()
 
-	go func() {
-		defer close(done)
-		for {
-			msgType, message, err := ws.ReadMessage()
-			if err != nil {
-				log.Println("read:", err)
-				return
-			} else {
-				switch msgType {
-				case websocket.BinaryMessage:
-					fromWS <- message
-				case websocket.TextMessage:
-					controlChan <- string(message)
-				}
+	go read(ws, fromWS, controlChan, done)
+	write(ws, toWS, done, interrupt)
 
-			}
+	log.Println("Terminating websocket read pump")
+}
+
+func read(ws *websocket.Conn, fromWS chan<- []byte, controlChan chan<- string, done chan struct{}) {
+	defer close(done)
+	for {
+		msgType, message, err := ws.ReadMessage()
+		if err != nil {
+			log.Println("read:", err)
+			return
 		}
-		log.Println("Terminating websocket read pump")
-	}()
 
+		switch msgType {
+		case websocket.BinaryMessage:
+			fromWS <- message
+		case websocket.TextMessage:
+			controlChan <- string(message)
+		}
+	}
+	log.Println("Terminating websocket read pump")
+
+	return
+}
+
+func write(ws *websocket.Conn, toWS <-chan []byte, done chan struct{}, interrupt chan os.Signal) {
 	for {
 		select {
 		case message := <-toWS:
@@ -128,7 +136,6 @@ func main() {
 			return
 		}
 	}
-	log.Println("Terminating websocket read pump")
 }
 
 func handleTCP(ts *TCPConnWithStatus, fromTCP chan<- []byte, controlChan <-chan string) {
@@ -172,14 +179,4 @@ func handleTCP(ts *TCPConnWithStatus, fromTCP chan<- []byte, controlChan <-chan 
 			return
 		}
 	}
-}
-
-func truncateString(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for !utf8.ValidString(s[:n]) {
-		n--
-	}
-	return s[:n]
 }
