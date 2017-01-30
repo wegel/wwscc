@@ -78,21 +78,30 @@ func (h *Hub) handleMessages() {
 		//the proxy is on the network that we can't reach
 		case client := <-h.registerProxy:
 			log.Printf("Registering proxy for channel ID: %v", client.channelId.String())
-			h.channels[client.channelId].proxy = client
-			if h.channels[client.channelId].tunnel != nil {
-				log.Printf("Got both sides for channel ID: %v", client.channelId.String())
-				h.channels[client.channelId].tunnel.otherSide = h.channels[client.channelId].proxy
-				h.channels[client.channelId].proxy.otherSide = h.channels[client.channelId].tunnel
+			if channel, ok := h.channels[client.channelId]; ok {
+				channel.proxy = client
+				if channel.tunnel != nil {
+					log.Printf("Got both sides for channel ID: %v", client.channelId.String())
+					channel.tunnel.otherSide = channel.proxy
+					channel.proxy.otherSide = channel.tunnel
+				}
+			} else {
+				log.Printf("Registering proxy failed for channel ID %v, channel ID unknown\n", client.channelId.String())
 			}
 
 		//the tunnel typically runs on our local computer
 		case client := <-h.registerTunnel:
 			log.Printf("Registering tunnel for channel ID: %v", client.channelId.String())
-			h.channels[client.channelId].tunnel = client
-			if h.channels[client.channelId].proxy != nil {
-				log.Printf("Got both sides for channel ID: %v", client.channelId.String())
-				h.channels[client.channelId].tunnel.otherSide = h.channels[client.channelId].proxy
-				h.channels[client.channelId].proxy.otherSide = h.channels[client.channelId].tunnel
+			if channel, ok := h.channels[client.channelId]; ok {
+				channel.tunnel = client
+				if channel.proxy != nil {
+					log.Printf("Got both sides for channel ID: %v", client.channelId.String())
+					channel.tunnel.otherSide = channel.proxy
+					channel.proxy.otherSide = channel.tunnel
+				}
+			} else {
+				log.Printf("Registering tunnel failed for channel ID %v, channel ID unknown\n", client.channelId.String())
+			}
 			}
 		}
 	}
