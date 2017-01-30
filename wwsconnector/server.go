@@ -14,7 +14,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
-var addr = flag.String("addr", "0.0.0.0:80", "http service address")
+var addr = flag.String("addr", ":8080", "http service address")
 
 const (
 	// Time allowed to write a message to the peer.
