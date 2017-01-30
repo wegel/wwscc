@@ -120,9 +120,7 @@ func (h *Hub) handleMessages() {
 	}
 }
 
-func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Params, remoteType string, params map[string][]string) {
-	id, _ := uuid.Parse(p.ByName("id"))
-
+func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, channelID uuid.UUID, remoteType string, params map[string][]string) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Print("upgrade:", err)
@@ -130,7 +128,7 @@ func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 	}
 	defer ws.Close()
 
-	client := &Client{hub: hub, conn: ws, channelID: id, params: params, remoteType: remoteType}
+	client := &Client{hub: hub, conn: ws, channelID: channelID, params: params, remoteType: remoteType}
 	hub.registerClient <- client
 	keepalive(ws)
 }
@@ -195,10 +193,12 @@ func main() {
 	})
 
 	router.GET("/ws/proxy/:id", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		setRemote(hub, w, r, p, "proxy", r.URL.Query())
+		id, _ := uuid.Parse(p.ByName("id"))
+		setRemote(hub, w, r, id, "proxy", r.URL.Query())
 	})
 	router.GET("/ws/tunnel/:id", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		setRemote(hub, w, r, p, "tunnel", r.URL.Query())
+		id, _ := uuid.Parse(p.ByName("id"))
+		setRemote(hub, w, r, id, "tunnel", r.URL.Query())
 	})
 
 	log.Printf("Listening on %s\n", *addr)
