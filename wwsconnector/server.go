@@ -3,17 +3,22 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/julienschmidt/httprouter"
+	"github.com/rs/cors"
+	"gopkg.in/alecthomas/kingpin.v2"
 )
 
-var addr = flag.String("addr", ":8080", "http service address")
+var (                                                                                                                                                                                  
+	listenAddr = kingpin.Flag("listen", "Listen to this TCP host:port").Default(":8080").OverrideDefaultFromEnvar("WWS_CONN_LISTEN").Short('l').String()
+    corsOrigin = kingpin.Flag("cors", "List of CORS Allowed origin").Default("").OverrideDefaultFromEnvar("WWS_CONN_CORS").Short('c').String()
+)
 
 const (
 	// Time allowed to write a message to the peer.
@@ -174,7 +179,7 @@ func serveFile(hub *Hub, w http.ResponseWriter, r *http.Request, p httprouter.Pa
 }
 
 func main() {
-	flag.Parse()
+	kingpin.Parse()
 	hub := newHub()
 
 	router := httprouter.New()
@@ -201,9 +206,27 @@ func main() {
 		id, _ := uuid.Parse(p.ByName("id"))
 		setRemote(hub, w, r, id, "tunnel", r.URL.Query())
 	})
+	router.GET("/health", func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		w.Write([]byte("ok"))
+	})
 
-	log.Printf("Listening on %s\n", *addr)
+	log.Printf("Listening on %s\n", *listenAddr)
 	log.Printf("Pinging every %v seconds\n", pingPeriod)
 	go hub.handleMessages()
-	log.Fatal(http.ListenAndServe(*addr, router))
+
+	var handler http.Handler = router
+
+	// Add CORS support (Cross Origin Resource Sharing) if needed
+	if len(*corsOrigin) > 0 {
+		c := cors.New(cors.Options{			
+			AllowedOrigins: strings.Split(*corsOrigin, ","),
+			AllowedMethods: []string{"GET"},
+			AllowCredentials: false,
+		})
+
+		// Insert the middleware
+		handler = c.Handler(router)
+	}
+	
+	log.Fatal(http.ListenAndServe(*listenAddr, handler))
 }
