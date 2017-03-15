@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"strconv"
@@ -10,11 +11,9 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
-
-	"bufio"
 )
 
-func GetSupportedCiphers() []string {
+func getSupportedCiphers() []string {
 	config := &ssh.ClientConfig{}
 	config.SetDefaults()
 	for _, cipher := range []string{"aes128-cbc"} {
@@ -46,22 +45,31 @@ func sshShell(channel *Channel) {
 	rows, _ := strconv.Atoi(channel.tunnel.params["rows"][0])
 	wsWrapper, err := NewConn(channel.tunnel)
 
+	var password string
+	if channel.tunnel.params["password"] != nil {
+		password = channel.tunnel.params["password"][0]
+	}
+
+	authMethod := ssh.PasswordCallback(func() (string, error) {
+		wsWrapper.Write([]byte(fmt.Sprintf("%s password: ", username)))
+
+		scanner := bufio.NewScanner(wsWrapper)
+		scanner.Scan()
+		pwd := strings.TrimSpace(scanner.Text())
+
+		wsWrapper.Write([]byte("\r\n"))
+		return pwd, nil
+	})
+
+	if len(password) > 0 {
+		authMethod = ssh.Password(password)
+	}
+
 	config := &ssh.ClientConfig{
-		Config: ssh.Config{Ciphers: GetSupportedCiphers()},
+		Config: ssh.Config{Ciphers: getSupportedCiphers()},
 		User:   username,
 		Auth: []ssh.AuthMethod{
-			ssh.PasswordCallback(func() (string, error) {
-				wsWrapper.Write([]byte(fmt.Sprintf("%s password: ", username)))
-
-				scanner := bufio.NewScanner(wsWrapper)
-				scanner.Scan()
-
-				pwd := strings.TrimSpace(scanner.Text())
-
-				wsWrapper.Write([]byte("\r\n"))
-				return pwd, nil
-
-			}),
+			authMethod,
 		},
 	}
 
