@@ -72,6 +72,17 @@ func (h *Hub) setClient(client *Client) {
 			log.Printf("Got both sides for channel ID: %v", client.channelID.String())
 			channel.tunnel.otherSide = channel.proxy
 			channel.proxy.otherSide = channel.tunnel
+
+			if val, ok := channel.tunnel.params["notify"]; ok {
+				log.Printf("Notify is %s for tunnel", val)
+				channel.tunnel.WriteMessage(websocket.TextMessage, []byte("WWS_GOTBOTH"))
+			}
+
+			if val, ok := channel.proxy.params["notify"]; ok {
+				log.Printf("Notify is %s for proxy", val)
+				channel.proxy.WriteMessage(websocket.TextMessage, []byte("WWS_GOTBOTH"))
+			}
+
 			log.Println("Launching channel handler")
 			go channel.handler(channel)
 		}
