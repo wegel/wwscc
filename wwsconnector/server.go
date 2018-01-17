@@ -135,7 +135,16 @@ func (h *Hub) handleMessages() {
 }
 
 func setRemote(hub *Hub, w http.ResponseWriter, r *http.Request, channelID uuid.UUID, remoteType string, params map[string][]string) {
-	ws, err := upgrader.Upgrade(w, r, nil)
+	header := http.Header{}
+	for name, value := range r.Header {
+		if name == "Sec-Websocket-Protocol" {
+			log.Printf("Injecting %s:%s header in %s's Upgrade Response", name, strings.Join(value, " "), remoteType)
+			header.Add(name, strings.Join(value, " "))
+			break
+		}
+	}
+
+	ws, err := upgrader.Upgrade(w, r, header)
 	if err != nil {
 		log.Print("upgrade:", err)
 		return
