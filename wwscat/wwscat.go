@@ -18,6 +18,7 @@ var (
 	listenAddr = kingpin.Flag("listen", "Listen to this TCP host:port (instead of stdio)").Default("").OverrideDefaultFromEnvar("WWS_TCP_LISTEN").Short('l').TCP()
 	proxyAddr  = kingpin.Flag("proxy", "Proxy to this TCP host:port").Default("").OverrideDefaultFromEnvar("PROXY").Short('p').TCP()
 	wsURL      = kingpin.Arg("url", "URL of the websocket server").Required().URL()
+	wait       = kingpin.Flag("wait", "Wait for the other side to connect before starting to listen or proxy").Default("false").Short('w').Bool()
 )
 
 func main() {
@@ -25,6 +26,18 @@ func main() {
 
 	ws := connect((*wsURL).String())
 	trapCtrlC(ws)
+
+	if *wait {
+		for {
+			log.Println("Waiting for both sides to connect before starting to listen or proxy")
+			messageType, buf, _ := ws.ReadMessage()
+			if messageType == websocket.TextMessage && string(buf) == "WWS_GOTBOTH" {
+				break
+			} else {
+				log.Println("Got ", string(buf))
+			}
+		}
+	}
 
 	var conn net.Conn
 	var err error
