@@ -49,7 +49,11 @@ func main() {
 		conn, err = tcpConn(*listenAddr, ready)
 	} else if *proxyAddr != nil && (*proxyAddr).Port != 0 {
 		log.Println("Setupping TCP proxy to ", (*proxyAddr).String())
-		conn, err = NewCOWConn((*proxyAddr).String(), ready)
+		cowconn, _ := NewCOWConn((*proxyAddr).String(), ready)
+		if *wait {
+			cowconn.Connect()
+		}
+		conn = cowconn
 	} else {
 		conn, err = NewStdioConn(ready)
 	}
