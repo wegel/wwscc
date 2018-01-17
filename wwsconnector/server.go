@@ -15,9 +15,9 @@ import (
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
-var (                                                                                                                                                                                  
+var (
 	listenAddr = kingpin.Flag("listen", "Listen to this TCP host:port").Default(":8080").OverrideDefaultFromEnvar("WWS_CONN_LISTEN").Short('l').String()
-    corsOrigin = kingpin.Flag("cors", "List of CORS Allowed origin").Default("").OverrideDefaultFromEnvar("WWS_CONN_CORS").Short('c').String()
+	corsOrigin = kingpin.Flag("cors", "List of CORS Allowed origin").Default("").OverrideDefaultFromEnvar("WWS_CONN_CORS").Short('c').String()
 )
 
 const (
@@ -194,6 +194,7 @@ func main() {
 		} else if channelHandlerType == "ssh" {
 			channelHandler = sshShell
 		}
+
 		log.Println("Asked to create channel of type", channelHandlerType)
 		createChannel(hub, w, r, p, channelHandler)
 	})
@@ -218,15 +219,15 @@ func main() {
 
 	// Add CORS support (Cross Origin Resource Sharing) if needed
 	if len(*corsOrigin) > 0 {
-		c := cors.New(cors.Options{			
-			AllowedOrigins: strings.Split(*corsOrigin, ","),
-			AllowedMethods: []string{"GET"},
+		c := cors.New(cors.Options{
+			AllowedOrigins:   strings.Split(*corsOrigin, ","),
+			AllowedMethods:   []string{"GET"},
 			AllowCredentials: false,
 		})
 
 		// Insert the middleware
 		handler = c.Handler(router)
 	}
-	
+
 	log.Fatal(http.ListenAndServe(*listenAddr, handler))
 }
