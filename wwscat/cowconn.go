@@ -41,8 +41,8 @@ func (conn *COWConn) Connect() (err error) {
 }
 
 func (conn *COWConn) Read(b []byte) (n int, err error) {
-	if conn.tcp == nil || conn.connected == false {
-		return 0, fmt.Errorf("COWConn: Read: tcp not connected yet")
+	if !conn.connected {
+		conn.Connect()
 	}
 	return conn.tcp.Read(b)
 }
