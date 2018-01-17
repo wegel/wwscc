@@ -28,6 +28,18 @@ func NewCOWConn(remote string, ready chan struct{}) (conn *COWConn, err error) {
 	return &COWConn{ready: ready, addr: addr, connected: false}, nil
 }
 
+func (conn *COWConn) Connect() (err error) {
+	log.Println("Connecting to", conn.addr.String())
+	conn.tcp, err = net.DialTCP("tcp", nil, conn.addr)
+	if err != nil {
+		println("Dial failed:", err.Error())
+		os.Exit(1)
+	}
+	conn.connected = true
+	conn.ready <- struct{}{}
+	return err
+}
+
 func (conn *COWConn) Read(b []byte) (n int, err error) {
 	if conn.tcp == nil || conn.connected == false {
 		return 0, fmt.Errorf("COWConn: Read: tcp not connected yet")
@@ -37,14 +49,7 @@ func (conn *COWConn) Read(b []byte) (n int, err error) {
 
 func (conn *COWConn) Write(b []byte) (n int, err error) {
 	if !conn.connected {
-		log.Println("Connecting to", conn.addr.String())
-		conn.tcp, err = net.DialTCP("tcp", nil, conn.addr)
-		if err != nil {
-			println("Dial failed:", err.Error())
-			os.Exit(1)
-		}
-		conn.connected = true
-		conn.ready <- struct{}{}
+		conn.Connect()
 	}
 
 	return conn.tcp.Write(b)
